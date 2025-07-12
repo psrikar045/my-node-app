@@ -1,11 +1,10 @@
 const express = require('express');
-const cors = require('cors');
+const cors =require('cors');
 const puppeteer = require('puppeteer');
 const dns = require('dns').promises;
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
-const { ensureChrome } = require('./ensure-chrome');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -32,11 +31,9 @@ app.get('/test-browser', (req, res) => {
     res.json({
       success: true,
       environment: process.env.NODE_ENV || 'development',
-      isRender: !!process.env.RENDER,
       generalBrowser: generalBrowserPath || 'Puppeteer bundled Chromium',
       linkedinBrowser: linkedinBrowserPath || 'Puppeteer bundled Chromium',
       platform: os.platform(),
-      puppeteerCacheDir: process.env.PUPPETEER_CACHE_DIR || 'default'
     });
   } catch (error) {
     res.status(500).json({
@@ -46,35 +43,11 @@ app.get('/test-browser', (req, res) => {
   }
 });
 
-// ✅ Start the server with Chrome initialization
-async function startServer() {
-  try {
-    // Ensure Chrome is available before starting the server
-    console.log('🚀 Initializing server...');
-    const chromeReady = await ensureChrome();
-    
-    if (!chromeReady) {
-      console.error('❌ Failed to initialize Chrome. Server may not work properly.');
-      // Continue anyway - some endpoints might still work
-    }
-    
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-      if (chromeReady) {
-        console.log('✅ Chrome is ready for web scraping');
-      } else {
-        console.log('⚠️  Chrome initialization failed - web scraping may not work');
-      }
-    });
-    
-  } catch (error) {
-    console.error('💥 Server startup failed:', error);
-    process.exit(1);
-  }
-}
+// ✅ Start the server
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+});
 
-// Start the server
-startServer();
 
 /* 
 PERFORMANCE OPTIMIZATIONS IMPLEMENTED:
@@ -313,17 +286,14 @@ const utils = {
  * @throws Will throw an error if Puppeteer setup or navigation fails.
  */
 async function setupPuppeteerPageForCompanyDetails(url) {
-    // Chrome availability is ensured at server startup
-    
-    const browserPath = getBrowserExecutablePath();
-    
     const launchOptions = {
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--single-process',
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process',
-            '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows',
@@ -331,24 +301,11 @@ async function setupPuppeteerPageForCompanyDetails(url) {
             '--no-first-run',
             '--no-default-browser-check',
             '--disable-extensions',
-            // Performance optimizations for Render
-            // '--memory-pressure-off',
-            // '--max_old_space_size=4096',
-            // '--no-zygote',
-            // '--single-process',
-            // '--disable-background-networking',
-            // '--disable-default-apps',
-            // '--disable-sync'
         ],
         headless: true,
         timeout: 60000, // Browser launch timeout (1 minute) - faster startup
         protocolTimeout: 180000 // CDP command timeout (3 minutes) - reduced but still reasonable
     };
-
-    // Only set executablePath if we found a specific browser
-    if (browserPath) {
-        launchOptions.executablePath = browserPath;
-    }
     
     // Browser launch with optimized retry logic
     let browser;
@@ -504,15 +461,6 @@ function normalizeLinkedInUrl(url) {
 function getBrowserExecutablePath() {
     const platform = os.platform();
     
-    // Check if we're in a production environment (like Render)
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
-    
-    if (isProduction) {
-        // For production environments (Render), let Puppeteer handle browser detection automatically
-        console.log('[Browser] Production environment detected, using Puppeteer bundled Chromium');
-        return null; // Let Puppeteer handle browser detection automatically
-    }
-    
     // For local development, try to find installed browsers
     const browserCandidates = {
         win32: [
@@ -561,13 +509,6 @@ function getBrowserExecutablePath() {
  */
 function getBrowserExecutablePathForLinkedIn() {
     const platform = os.platform();
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
-    
-    if (isProduction) {
-        // In production (Render), use Puppeteer's bundled Chromium for LinkedIn
-        console.log('[LinkedIn Browser] Production environment detected, using Puppeteer bundled Chromium');
-        return null; // Let Puppeteer handle browser detection automatically
-    }
     
     // For local development, prefer Edge for LinkedIn
     const browserCandidates = {
@@ -612,8 +553,6 @@ function getBrowserExecutablePathForLinkedIn() {
  */
 //this is been used to fetch the data from linkedin
 async function extractCompanyDataFromLinkedIn(linkedinUrl) {
-    // Chrome availability is ensured at server startup
-    
     const browserPath = getBrowserExecutablePathForLinkedIn();
 
     const launchOptions = {
@@ -621,9 +560,10 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--single-process',
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process',
-            '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows',
@@ -1818,11 +1758,6 @@ app.post('/api/extract-company-details', async (req, res) => {
             } catch (closeError) {
                 console.error('[Browser] Error closing browser:', closeError.message);
             }
-        }
-        
-        // Force garbage collection if available
-        if (global.gc) {
-            global.gc();
         }
     }
 });
