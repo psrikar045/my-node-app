@@ -96,16 +96,29 @@ EXPECTED PERFORMANCE IMPROVEMENT:
 // Utility functions grouped into an object
 const utils = {
     /**
-     * Validates if a given string is a valid URL.
-     * @param {string} url - The URL string to validate.
-     * @returns {boolean} True if the URL is valid, false otherwise.
+     * Validates and normalizes a given string into a valid URL.
+     * If the URL is valid, it returns the normalized URL string.
+     * Otherwise, it returns false.
+     * @param {string} urlString - The URL string to validate.
+     * @returns {string|false} The normalized URL or false.
      */
-    isValidUrl(url) {
+    isValidUrl(urlString) {
+        if (!urlString) return false;
+        let url = urlString.trim();
+        if (!/^https?:\/\//i.test(url)) {
+            url = 'https://' + url;
+        }
         try {
-            new URL(url);
-            return true;
+            const parsedUrl = new URL(url);
+            return parsedUrl.href;
         } catch (e) {
-            return false;
+            try {
+                let fallbackUrl = 'http://' + urlString.trim();
+                const parsedUrl = new URL(fallbackUrl);
+                return parsedUrl.href;
+            } catch (e2) {
+                return false;
+            }
         }
     },
 
@@ -1679,21 +1692,22 @@ async function extractCompanyDetailsFromPage(page, url, browser) { // Added brow
 
 // New endpoint for extracting specific company details
 app.post('/api/extract-company-details', async (req, res) => {
-    const { url } = req.body;
+    const { url: initialUrl } = req.body;
 
-    if (!url) {
+    if (!initialUrl) {
         return res.status(400).json({ error: 'URL is required' });
     }
 
-    if (!utils.isValidUrl(url)) {
+    const normalizedUrl = utils.isValidUrl(initialUrl);
+    if (!normalizedUrl) {
         return res.status(400).json({ error: 'Invalid URL format' });
     }
 
     // Check cache first for performance
-    const cacheKey = url.toLowerCase().trim();
+    const cacheKey = normalizedUrl;
     const cachedResult = extractionCache.get(cacheKey);
     if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_DURATION) {
-        console.log(`[Cache] Returning cached result for ${url}`);
+        console.log(`[Cache] Returning cached result for ${normalizedUrl}`);
         return res.status(200).json({
             ...cachedResult.data,
             _cached: true,
@@ -1701,20 +1715,20 @@ app.post('/api/extract-company-details', async (req, res) => {
         });
     }
 
-    const isResolvable = await utils.isDomainResolvable(url);
+    const isResolvable = await utils.isDomainResolvable(normalizedUrl);
     if (!isResolvable) {
         return res.status(400).json({ error: 'Domain name could not be resolved' });
     }
 
     let browser;
     try {
-        const { browser: launchedBrowser, page } = await setupPuppeteerPageForCompanyDetails(url);
+        const { browser: launchedBrowser, page } = await setupPuppeteerPageForCompanyDetails(normalizedUrl);
         browser = launchedBrowser;
 
         // Add timeout wrapper for the entire extraction process with smart timeout
         console.log('[Extraction] Starting company details extraction with 4-minute timeout...');
         const companyDetails = await Promise.race([
-            extractCompanyDetailsFromPage(page, url, browser),
+            extractCompanyDetailsFromPage(page, normalizedUrl, browser),
             new Promise((_, reject) => 
                 setTimeout(() => reject(new Error('Company extraction timeout after 4 minutes')), 240000) // Balanced timeout - allows LinkedIn extraction but not too long
             )
