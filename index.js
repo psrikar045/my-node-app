@@ -573,9 +573,14 @@ function getBrowserExecutablePathForLinkedIn() {
  */
 //this is been used to fetch the data from linkedin
 async function extractCompanyDataFromLinkedIn(linkedinUrl) {
-    const browserPath = getBrowserExecutablePathForLinkedIn();
+    let browser;
+    let page;
+    const timestamp = new Date().toISOString().replace(/:/g, '-');
 
-    const launchOptions = {
+    try {
+        const browserPath = getBrowserExecutablePathForLinkedIn();
+        console.log(`[LinkedIn] Using browser: ${browserPath || 'Puppeteer bundled'}`);
+        const launchOptions = {
         headless: true,
         args: [
             '--no-sandbox',
@@ -603,10 +608,13 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
     }
     // If browserPath is null, Puppeteer will use its bundled Chromium
 
-    const browser = await puppeteer.launch(launchOptions);
+    browser = await puppeteer.launch(launchOptions);
+    console.log('[LinkedIn] Browser launched successfully.');
 
     const context = await browser.createIncognitoBrowserContext();
-    const page = await context.newPage();
+    console.log('[LinkedIn] Incognito context created.');
+    page = await context.newPage();
+    console.log('[LinkedIn] New page created.');
 
     try {
         const cleanUrl = normalizeLinkedInUrl(linkedinUrl);
@@ -622,6 +630,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         ];
         const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
         await page.setUserAgent(userAgent);
+        console.log(`[LinkedIn] User-Agent set to: ${userAgent}`);
         await page.setViewport({ width: 1366, height: 768 });
         
         // Set additional headers to look more like a real browser
@@ -637,6 +646,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         });
         
         // Enhanced anti-detection measures
+        console.log('[LinkedIn] Injecting anti-detection scripts...');
         await page.evaluateOnNewDocument(() => {
             // Remove webdriver property
             Object.defineProperty(navigator, 'webdriver', {
@@ -666,11 +676,16 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         await page.setViewport({ width: 1366, height: 768 });
         
         const timestamp = new Date().toISOString().replace(/:/g, '-');
-        console.log(`[LinkedIn] Navigating to ${cleanUrl}...`);
+        console.log(`[LinkedIn] Navigating to: ${cleanUrl}`);
         await page.goto(cleanUrl, { waitUntil: 'networkidle2' });
-        console.log('[LinkedIn] Navigation complete.');
+        console.log(`[LinkedIn] Navigation to ${cleanUrl} complete. Current page title: "${await page.title()}"`);
 
-        await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_page_loaded_${timestamp}.png`, fullPage: true });
+        try {
+            console.log(`[Screenshot] Attempting to capture 'page_loaded' screenshot for URL: ${cleanUrl}...`);
+            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_page_loaded_${timestamp}.png`, fullPage: true });
+        } catch (sError) {
+            console.error(`[Screenshot Error] Failed to capture 'page_loaded' screenshot for URL: ${cleanUrl}: ${sError.message}`);
+        }
 
         await page.waitForTimeout(Math.random() * 1500 + 500);
 
@@ -683,9 +698,16 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         ];
 
         try {
-            console.log('[LinkedIn] Checking for pop-up...');
+            console.log('[LinkedIn] Starting pop-up check...');
             await page.waitForSelector(POPUP_CLOSE_SELECTORS.join(','), { timeout: 7000 });
-            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_popup_before_close_${timestamp}.png`, fullPage: true });
+            console.log('[LinkedIn] Pop-up detected.');
+
+            try {
+                console.log(`[Screenshot] Attempting to capture 'popup_before_close' screenshot for URL: ${cleanUrl}...`);
+                await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_popup_before_close_${timestamp}.png`, fullPage: true });
+            } catch (sError) {
+                console.error(`[Screenshot Error] Failed to capture 'popup_before_close' screenshot for URL: ${cleanUrl}: ${sError.message}`);
+            }
 
             for (const selector of POPUP_CLOSE_SELECTORS) {
                 try {
@@ -698,11 +720,17 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
                 }
             }
         } catch (error) {
-            console.log('[LinkedIn] No pop-up detected or could not be closed, continuing...');
+            console.log('[LinkedIn] Pop-up check completed: No pop-up found within the timeout period.');
         }
 
+        console.log(`[LinkedIn] Ready for extraction. Page title is: "${await page.title()}"`);
         console.log('[LinkedIn] Starting data extraction...');
-        await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_before_extraction_${timestamp}.png`, fullPage: true });
+        try {
+            console.log(`[Screenshot] Attempting to capture 'before_extraction' screenshot for URL: ${cleanUrl}...`);
+            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_before_extraction_${timestamp}.png`, fullPage: true });
+        } catch (sError) {
+            console.error(`[Screenshot Error] Failed to capture 'before_extraction' screenshot for URL: ${cleanUrl}: ${sError.message}`);
+        }
         await page.waitForTimeout(Math.random() * 1500 + 500);
         const data = await Promise.race([
             page.evaluate(() => {
@@ -845,12 +873,10 @@ const getImageFromBanner = () => {
     ]);
         
         console.log('[LinkedIn] Page evaluation completed successfully');
-        await context.close();
-        await browser.close();
         console.log('[LinkedIn] Data extraction successful.');
         return data;
     } catch (error) {
-        console.error('[LinkedIn Scrape Error]', error.message);
+        console.error(`[LinkedIn Scrape Error] for ${linkedinUrl}: ${error.message}`);
         let statusCode = 500;
         let errorMessage = `LinkedIn scraping failed: ${error.message}`;
 
@@ -868,11 +894,17 @@ const getImageFromBanner = () => {
             errorMessage = 'LinkedIn bot detection triggered.';
         }
 
-        const timestamp = new Date().toISOString().replace(/:/g, '-');
-        await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_error_${timestamp}.png`, fullPage: true });
+        if (page) {
+            try {
+                console.log(`[Screenshot] Attempting to capture 'error' screenshot for URL: ${linkedinUrl}...`);
+                await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_error_${timestamp}.png`, fullPage: true });
+            } catch (sError) {
+                console.error(`[Screenshot Error] Failed to capture 'error' screenshot for URL: ${linkedinUrl}: ${sError.message}`);
+            }
+        }
 
         try {
-            await context.close();
+            if (browser) await browser.close();
             await browser.close();
         } catch (closeError) {
             console.error('[LinkedIn] Error closing browser:', closeError.message);
@@ -1720,6 +1752,7 @@ app.post('/api/extract-company-details', async (req, res) => {
             _cacheAge: Math.round((Date.now() - cachedResult.timestamp) / 1000)
         });
     }
+    console.log(`[Cache] No valid cache entry for ${normalizedUrl}, proceeding with scrape.`);
 
     const isResolvable = await utils.isDomainResolvable(normalizedUrl);
     if (!isResolvable) {
@@ -1741,6 +1774,7 @@ app.post('/api/extract-company-details', async (req, res) => {
         ]);
 
         // Cache the result for future requests
+        console.log(`[Cache] Caching new result for ${normalizedUrl}`);
         extractionCache.set(cacheKey, {
             data: companyDetails,
             timestamp: Date.now()
