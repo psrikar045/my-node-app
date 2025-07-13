@@ -875,9 +875,27 @@ const getImageFromBanner = () => {
         console.log('[LinkedIn] Page evaluation completed successfully');
         console.log('[LinkedIn] Data extraction successful.');
         return data;
-    } catch (error) {
-        console.error(`[LinkedIn Scrape Error] for ${linkedinUrl}: ${error.message}`);
-        let statusCode = 500;
+} catch (error) {
+    console.error(`[LinkedIn Extraction Error] Failed to extract data from ${linkedinUrl}:`, error.message);
+    try {
+        if (page) {
+            console.log(`[Screenshot] Attempting to capture 'error_state' screenshot for URL: ${linkedinUrl}...`);
+            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_error_${timestamp}.png`, fullPage: true });
+        }
+    } catch (sError) {
+        console.error(`[Screenshot Error] Failed to capture 'error_state' screenshot: ${sError.message}`);
+    }
+    throw error; // Re-throw the error
+} finally {
+    if (browser) {
+        try {
+            await browser.close();
+            console.log('[LinkedIn] Browser closed successfully.');
+        } catch (closeError) {
+            console.error('[LinkedIn] Error closing browser:', closeError.message);
+        }
+    }
+}
         let errorMessage = `LinkedIn scraping failed: ${error.message}`;
 
         if (error.name === 'TimeoutError') {
@@ -915,7 +933,6 @@ const getImageFromBanner = () => {
             statusCode: statusCode,
             errorType: error.name || 'UnknownError'
         };
-    }
 }
 
 async function extractCompanyDetailsFromPage(page, url, browser) { // Added browser argument here
@@ -1792,7 +1809,7 @@ app.post('/api/extract-company-details', async (req, res) => {
         res.status(200).json(companyDetails);
 
     } catch (error) {
-        console.error(`[Error extracting company details for URL: ${url}]`, error);
+        console.error(`[Error extracting company details for URL: ${normalizedUrl}]`, error);
         // Basic error handling, will be refined
         let errorMessage = 'Failed to extract company details. An unexpected error occurred.';
         let statusCode = 500;
