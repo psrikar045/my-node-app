@@ -875,27 +875,9 @@ const getImageFromBanner = () => {
         console.log('[LinkedIn] Page evaluation completed successfully');
         console.log('[LinkedIn] Data extraction successful.');
         return data;
-} catch (error) {
-    console.error(`[LinkedIn Extraction Error] Failed to extract data from ${linkedinUrl}:`, error.message);
-    try {
-        if (page) {
-            console.log(`[Screenshot] Attempting to capture 'error_state' screenshot for URL: ${linkedinUrl}...`);
-            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_error_${timestamp}.png`, fullPage: true });
-        }
-    } catch (sError) {
-        console.error(`[Screenshot Error] Failed to capture 'error_state' screenshot: ${sError.message}`);
-    }
-    throw error; // Re-throw the error
-} finally {
-    if (browser) {
-        try {
-            await browser.close();
-            console.log('[LinkedIn] Browser closed successfully.');
-        } catch (closeError) {
-            console.error('[LinkedIn] Error closing browser:', closeError.message);
-        }
-    }
-}
+   } catch (error) {
+        console.error(`[LinkedIn Scrape Error] for ${linkedinUrl}: ${error.message}`);
+        let statusCode = 500;
         let errorMessage = `LinkedIn scraping failed: ${error.message}`;
 
         if (error.name === 'TimeoutError') {
@@ -934,7 +916,10 @@ const getImageFromBanner = () => {
             errorType: error.name || 'UnknownError'
         };
 }
-
+    }catch (error) {
+        console.error(`[LinkedIn Setup Error] for ${linkedinUrl}: ${error.message}`);
+    }
+}
 async function extractCompanyDetailsFromPage(page, url, browser) { // Added browser argument here
     const startTime = Date.now();
     console.log(`[Performance] Starting extraction for ${url}`);
