@@ -1,6 +1,8 @@
 const express = require('express');
 const cors =require('cors');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 const dns = require('dns').promises;
 const os = require('os');
 const fs = require('fs');
@@ -573,23 +575,21 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-gpu',
+            '--no-zygote',
             '--disable-dev-shm-usage',
             '--single-process',
-            '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process',
-            '--disable-gpu',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
+            '--disable-accelerated-2d-canvas',
+            '--disable-features=site-per-process',
             '--no-first-run',
             '--no-default-browser-check',
             '--disable-extensions',
-            // LinkedIn-specific arguments to avoid detection
-            '--disable-blink-features=AutomationControlled',
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+            '--lang=en-US,en',
+            // '--proxy-server=http://your-proxy-server:port',
+            // '--proxy-bypass-list=<-loopback>',
         ],
-        timeout: 60000, // Reduced browser launch timeout for LinkedIn
-        protocolTimeout: 180000 // Reduced protocol timeout for LinkedIn
+        timeout: 120000, // 2 minutes
+        protocolTimeout: 180000, // 3 minutes
     };
 
     // Only set executablePath if we found a specific browser
@@ -605,9 +605,12 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
 
     try {
         const cleanUrl = normalizeLinkedInUrl(linkedinUrl);
-        
-        // Enhanced stealth measures for LinkedIn
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36');
+
+        page.setDefaultNavigationTimeout(120000); // 2 minutes
+        page.setDefaultTimeout(60000); // 1 minute
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36');
+        await page.setViewport({ width: 1366, height: 768 });
         
         // Set additional headers to look more like a real browser
         await page.setExtraHTTPHeaders({
@@ -648,42 +651,10 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         // Set viewport to common resolution
         await page.setViewport({ width: 1366, height: 768 });
         
-        // Smart LinkedIn navigation with adaptive approach
-        let navigationSuccess = false;
-        let lastError = null;
-        
-        // Try fast approach first, then fallback to more reliable approach
-        const navigationStrategies = [
-            { waitUntil: 'domcontentloaded', timeout: 20000 },  // Fast approach
-            { waitUntil: 'load', timeout: 60000 }               // Reliable fallback
-        ];
-        
-        for (let attempt = 1; attempt <= 2; attempt++) {
-            for (const strategy of navigationStrategies) {
-                try {
-                    console.log(`[LinkedIn] Navigation attempt ${attempt}/2 to ${cleanUrl} with ${strategy.waitUntil} (${strategy.timeout/1000}s)`);
-                    await page.goto(cleanUrl, strategy);
-                    navigationSuccess = true;
-                    console.log(`[LinkedIn] Navigation successful with ${strategy.waitUntil} on attempt ${attempt}`);
-                    break;
-                } catch (error) {
-                    lastError = error;
-                    console.log(`[LinkedIn] Navigation failed with ${strategy.waitUntil}:`, error.message);
-                }
-            }
-            
-            if (navigationSuccess) break;
-            
-            if (attempt < 2) {
-                console.log(`[LinkedIn] Waiting 2 seconds before retry...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-        
-        if (!navigationSuccess) {
-            throw new Error(`LinkedIn navigation failed after trying all strategies. Last error: ${lastError.message}`);
-        }
-        
+        console.log(`[LinkedIn] Navigating to ${cleanUrl}...`);
+        await page.goto(cleanUrl, { waitUntil: 'networkidle2' });
+        console.log('[LinkedIn] Navigation complete.');
+
         // Wait a bit for dynamic content to load with reduced delay
         const randomDelay = 500 + Math.random() * 1000; // 0.5-1.5 seconds (reduced from 1-3 seconds)
         await new Promise(resolve => setTimeout(resolve, randomDelay));
@@ -708,8 +679,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
             }
         }
 
-        // Add timeout to the page evaluation (reduced timeout)
-        console.log('[LinkedIn] Starting page data extraction...');
+        console.log('[LinkedIn] Starting data extraction...');
         const data = await Promise.race([
             page.evaluate(() => {
             console.log('[LinkedIn Eval] Starting data extraction...');
@@ -853,19 +823,27 @@ const getImageFromBanner = () => {
         console.log('[LinkedIn] Page evaluation completed successfully');
         await context.close();
         await browser.close();
+        console.log('[LinkedIn] Data extraction successful.');
         return data;
-    } catch (err) {
-        console.error('[LinkedIn Scrape Error]', err.message);
-        
-        // Provide more specific error information
-        if (err.message.includes('Navigation timeout')) {
-            console.error('[LinkedIn] Navigation timeout - LinkedIn may be blocking requests or server is slow');
-        } else if (err.message.includes('net::ERR_')) {
-            console.error('[LinkedIn] Network error - connection issue or LinkedIn blocking');
-        } else if (err.message.includes('Protocol error')) {
-            console.error('[LinkedIn] Protocol error - browser communication issue');
+    } catch (error) {
+        console.error('[LinkedIn Scrape Error]', error.message);
+        let statusCode = 500;
+        let errorMessage = `LinkedIn scraping failed: ${error.message}`;
+
+        if (error.name === 'TimeoutError') {
+            statusCode = 504;
+            errorMessage = 'Timeout while scraping LinkedIn.';
+        } else if (error.message.includes('net::ERR_')) {
+            statusCode = 502;
+            errorMessage = 'Network error while connecting to LinkedIn.';
         }
-        
+
+        const pageTitle = await page.title();
+        if (pageTitle.includes('Security check') || pageTitle.includes('CAPTCHA')) {
+            statusCode = 403;
+            errorMessage = 'LinkedIn bot detection triggered.';
+        }
+
         try {
             await context.close();
             await browser.close();
@@ -874,8 +852,9 @@ const getImageFromBanner = () => {
         }
         
         return { 
-            error: `LinkedIn scraping failed: ${err.message}`,
-            errorType: err.name || 'UnknownError'
+            error: errorMessage,
+            statusCode: statusCode,
+            errorType: error.name || 'UnknownError'
         };
     }
 }
