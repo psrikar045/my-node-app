@@ -12,6 +12,7 @@ let cluster;
  */
 function getLaunchOptions() {
   const headless = process.env.HEADLESS_DEBUG !== 'false';
+
   const opts = {
     headless,
     args: ['--no-sandbox', '--disable-setuid-sandbox']

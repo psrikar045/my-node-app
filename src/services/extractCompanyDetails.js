@@ -1,8 +1,10 @@
+
 const { getCluster } = require('./puppeteerSetup');
 const { retryLinkedInExtraction, extractCompanyDataFromLinkedIn } = require('./linkedinScraper');
 const { ErrorTypes, createError } = require('../utils/errorUtils');
 const { isValidUrl, isDomainResolvable } = require('../utils/urlUtils');
 const { extractFonts } = require('../utils/fontUtils');
+
 
 // simple in-memory cache to avoid external dependencies
 const extractionCache = new Map();
@@ -61,6 +63,7 @@ async function extractCompanyDetailsFromPage(page, url) {
   return { title, description, logoUrl, colors, fonts, socialLinks: socials };
 }
 
+
 /**
  * Extract company details from a website and optionally LinkedIn.
  * @param {string} url Target website URL.
@@ -78,6 +81,7 @@ async function extractCompanyDetails(url, linkedin) {
   }
 
   const cacheKey = `extract:${normalized}`;
+
   const cached = extractionCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
     console.log(`[cache] hit ${normalized}`);
@@ -99,6 +103,7 @@ async function extractCompanyDetails(url, linkedin) {
     throw createError(ErrorTypes.NavigationError, err.message);
   }
 
+
   let linkedinData = null;
   if (linkedin) {
     try {
@@ -115,6 +120,7 @@ async function extractCompanyDetails(url, linkedin) {
       const res = await withTimeout(retryLinkedInExtraction(linkedin), 120000);
       linkedinData = res.data;
     } catch (err) {
+
       console.error(err);
     }
   }
@@ -126,11 +132,13 @@ async function extractCompanyDetails(url, linkedin) {
     _performance: { ms: Date.now() - start }
   };
 
+
   extractionCache.set(cacheKey, { data: result, timestamp: Date.now() });
   if (extractionCache.size > MAX_CACHE_ENTRIES) {
     const oldestKey = extractionCache.keys().next().value;
     extractionCache.delete(oldestKey);
   }
+
 
   return result;
 }
