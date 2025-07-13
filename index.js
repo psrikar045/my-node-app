@@ -11,6 +11,11 @@ const path = require('path');
 const app = express();
 const port = process.env.PORT || 3000;
 
+const SCREENSHOT_DIR = './screenshots';
+if (!fs.existsSync(SCREENSHOT_DIR)) {
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+}
+
 // Simple in-memory cache for performance optimization
 const extractionCache = new Map();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes cache
@@ -660,9 +665,12 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         // Set viewport to common resolution
         await page.setViewport({ width: 1366, height: 768 });
         
+        const timestamp = new Date().toISOString().replace(/:/g, '-');
         console.log(`[LinkedIn] Navigating to ${cleanUrl}...`);
         await page.goto(cleanUrl, { waitUntil: 'networkidle2' });
         console.log('[LinkedIn] Navigation complete.');
+
+        await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_page_loaded_${timestamp}.png`, fullPage: true });
 
         await page.waitForTimeout(Math.random() * 1500 + 500);
 
@@ -677,6 +685,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         try {
             console.log('[LinkedIn] Checking for pop-up...');
             await page.waitForSelector(POPUP_CLOSE_SELECTORS.join(','), { timeout: 7000 });
+            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_popup_before_close_${timestamp}.png`, fullPage: true });
 
             for (const selector of POPUP_CLOSE_SELECTORS) {
                 try {
@@ -693,6 +702,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         }
 
         console.log('[LinkedIn] Starting data extraction...');
+        await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_before_extraction_${timestamp}.png`, fullPage: true });
         await page.waitForTimeout(Math.random() * 1500 + 500);
         const data = await Promise.race([
             page.evaluate(() => {
@@ -857,6 +867,9 @@ const getImageFromBanner = () => {
             statusCode = 403;
             errorMessage = 'LinkedIn bot detection triggered.';
         }
+
+        const timestamp = new Date().toISOString().replace(/:/g, '-');
+        await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_error_${timestamp}.png`, fullPage: true });
 
         try {
             await context.close();
