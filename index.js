@@ -1,6 +1,8 @@
 const express = require('express');
 const cors =require('cors');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 const dns = require('dns').promises;
 const os = require('os');
 const fs = require('fs');
@@ -8,6 +10,11 @@ const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+const SCREENSHOT_DIR = './screenshots';
+if (!fs.existsSync(SCREENSHOT_DIR)) {
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+}
 
 // Simple in-memory cache for performance optimization
 const extractionCache = new Map();
@@ -566,30 +573,33 @@ function getBrowserExecutablePathForLinkedIn() {
  */
 //this is been used to fetch the data from linkedin
 async function extractCompanyDataFromLinkedIn(linkedinUrl) {
-    const browserPath = getBrowserExecutablePathForLinkedIn();
+    let browser;
+    let page;
+    const timestamp = new Date().toISOString().replace(/:/g, '-');
 
-    const launchOptions = {
+    try {
+        const browserPath = getBrowserExecutablePathForLinkedIn();
+        console.log(`[LinkedIn] Using browser: ${browserPath || 'Puppeteer bundled'}`);
+        const launchOptions = {
         headless: true,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-gpu',
+            '--no-zygote',
             '--disable-dev-shm-usage',
             '--single-process',
-            '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process',
-            '--disable-gpu',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
+            '--disable-accelerated-2d-canvas',
+            '--disable-features=site-per-process',
             '--no-first-run',
             '--no-default-browser-check',
             '--disable-extensions',
-            // LinkedIn-specific arguments to avoid detection
-            '--disable-blink-features=AutomationControlled',
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+            '--lang=en-US,en',
+            // '--proxy-server=http://your-proxy-server:port',
+            // '--proxy-bypass-list=<-loopback>',
         ],
-        timeout: 60000, // Reduced browser launch timeout for LinkedIn
-        protocolTimeout: 180000 // Reduced protocol timeout for LinkedIn
+        timeout: 120000, // 2 minutes
+        protocolTimeout: 180000, // 3 minutes
     };
 
     // Only set executablePath if we found a specific browser
@@ -598,19 +608,35 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
     }
     // If browserPath is null, Puppeteer will use its bundled Chromium
 
-    const browser = await puppeteer.launch(launchOptions);
+    browser = await puppeteer.launch(launchOptions);
+    console.log('[LinkedIn] Browser launched successfully.');
 
-    const context = await browser.createBrowserContext();
-    const page = await context.newPage();
+    const context = await browser.createIncognitoBrowserContext();
+    console.log('[LinkedIn] Incognito context created.');
+    page = await context.newPage();
+    console.log('[LinkedIn] New page created.');
 
     try {
         const cleanUrl = normalizeLinkedInUrl(linkedinUrl);
-        
-        // Enhanced stealth measures for LinkedIn
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36');
+
+        page.setDefaultNavigationTimeout(120000); // 2 minutes
+        page.setDefaultTimeout(60000); // 1 minute
+
+        const userAgents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+        ];
+        const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+        await page.setUserAgent(userAgent);
+        console.log(`[LinkedIn] User-Agent set to: ${userAgent}`);
+        await page.setViewport({ width: 1366, height: 768 });
         
         // Set additional headers to look more like a real browser
         await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -620,6 +646,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         });
         
         // Enhanced anti-detection measures
+        console.log('[LinkedIn] Injecting anti-detection scripts...');
         await page.evaluateOnNewDocument(() => {
             // Remove webdriver property
             Object.defineProperty(navigator, 'webdriver', {
@@ -648,68 +675,63 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         // Set viewport to common resolution
         await page.setViewport({ width: 1366, height: 768 });
         
-        // Smart LinkedIn navigation with adaptive approach
-        let navigationSuccess = false;
-        let lastError = null;
-        
-        // Try fast approach first, then fallback to more reliable approach
-        const navigationStrategies = [
-            { waitUntil: 'domcontentloaded', timeout: 20000 },  // Fast approach
-            { waitUntil: 'load', timeout: 60000 }               // Reliable fallback
+        const timestamp = new Date().toISOString().replace(/:/g, '-');
+        console.log(`[LinkedIn] Navigating to: ${cleanUrl}`);
+        await page.goto(cleanUrl, { waitUntil: 'networkidle2' });
+        console.log(`[LinkedIn] Navigation to ${cleanUrl} complete. Current page title: "${await page.title()}"`);
+
+        try {
+            console.log(`[Screenshot] Attempting to capture 'page_loaded' screenshot for URL: ${cleanUrl}...`);
+            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_page_loaded_${timestamp}.png`, fullPage: true });
+        } catch (sError) {
+            console.error(`[Screenshot Error] Failed to capture 'page_loaded' screenshot for URL: ${cleanUrl}: ${sError.message}`);
+        }
+
+        await page.waitForTimeout(Math.random() * 1500 + 500);
+
+        const POPUP_CLOSE_SELECTORS = [
+            'button[aria-label="Dismiss"]',
+            'button[data-test-id="overlay-close"]',
+            'button.modal__close',
+            '.modal-header .close',
+            'button[aria-label*="close" i]'
         ];
-        
-        for (let attempt = 1; attempt <= 2; attempt++) {
-            for (const strategy of navigationStrategies) {
+
+        try {
+            console.log('[LinkedIn] Starting pop-up check...');
+            await page.waitForSelector(POPUP_CLOSE_SELECTORS.join(','), { timeout: 7000 });
+            console.log('[LinkedIn] Pop-up detected.');
+
+            try {
+                console.log(`[Screenshot] Attempting to capture 'popup_before_close' screenshot for URL: ${cleanUrl}...`);
+                await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_popup_before_close_${timestamp}.png`, fullPage: true });
+            } catch (sError) {
+                console.error(`[Screenshot Error] Failed to capture 'popup_before_close' screenshot for URL: ${cleanUrl}: ${sError.message}`);
+            }
+
+            for (const selector of POPUP_CLOSE_SELECTORS) {
                 try {
-                    console.log(`[LinkedIn] Navigation attempt ${attempt}/2 to ${cleanUrl} with ${strategy.waitUntil} (${strategy.timeout/1000}s)`);
-                    await page.goto(cleanUrl, strategy);
-                    navigationSuccess = true;
-                    console.log(`[LinkedIn] Navigation successful with ${strategy.waitUntil} on attempt ${attempt}`);
+                    await page.click(selector, { timeout: 1000 });
+                    console.log(`[LinkedIn] Clicked pop-up close button with selector: ${selector}`);
+                    await page.waitForTimeout(Math.random() * 1000 + 500);
                     break;
-                } catch (error) {
-                    lastError = error;
-                    console.log(`[LinkedIn] Navigation failed with ${strategy.waitUntil}:`, error.message);
+                } catch (e) {
+                    // Selector not found or not clickable, try next one
                 }
             }
-            
-            if (navigationSuccess) break;
-            
-            if (attempt < 2) {
-                console.log(`[LinkedIn] Waiting 2 seconds before retry...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-        
-        if (!navigationSuccess) {
-            throw new Error(`LinkedIn navigation failed after trying all strategies. Last error: ${lastError.message}`);
-        }
-        
-        // Wait a bit for dynamic content to load with reduced delay
-        const randomDelay = 500 + Math.random() * 1000; // 0.5-1.5 seconds (reduced from 1-3 seconds)
-        await new Promise(resolve => setTimeout(resolve, randomDelay));
-
-        // Try to close various popups that might appear
-        const popupSelectors = [
-            'button[aria-label="Dismiss"]',
-            'button[data-test-modal-close-btn]',
-            'button[class*="modal-close"]',
-            '.modal button[aria-label*="close"]',
-            '.artdeco-modal__dismiss'
-        ];
-        
-        for (const selector of popupSelectors) {
-            try {
-                await page.click(selector, { timeout: 1000 }); // Reduced from 2000ms to 1000ms
-                console.log(`[LinkedIn] Dismissed popup using selector: ${selector}`);
-                await new Promise(resolve => setTimeout(resolve, 500)); // Reduced from 1000ms to 500ms
-                break;
-            } catch {
-                // Continue to next selector
-            }
+        } catch (error) {
+            console.log('[LinkedIn] Pop-up check completed: No pop-up found within the timeout period.');
         }
 
-        // Add timeout to the page evaluation (reduced timeout)
-        console.log('[LinkedIn] Starting page data extraction...');
+        console.log(`[LinkedIn] Ready for extraction. Page title is: "${await page.title()}"`);
+        console.log('[LinkedIn] Starting data extraction...');
+        try {
+            console.log(`[Screenshot] Attempting to capture 'before_extraction' screenshot for URL: ${cleanUrl}...`);
+            await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_before_extraction_${timestamp}.png`, fullPage: true });
+        } catch (sError) {
+            console.error(`[Screenshot Error] Failed to capture 'before_extraction' screenshot for URL: ${cleanUrl}: ${sError.message}`);
+        }
+        await page.waitForTimeout(Math.random() * 1500 + 500);
         const data = await Promise.race([
             page.evaluate(() => {
             console.log('[LinkedIn Eval] Starting data extraction...');
@@ -851,35 +873,53 @@ const getImageFromBanner = () => {
     ]);
         
         console.log('[LinkedIn] Page evaluation completed successfully');
-        await context.close();
-        await browser.close();
+        console.log('[LinkedIn] Data extraction successful.');
         return data;
-    } catch (err) {
-        console.error('[LinkedIn Scrape Error]', err.message);
-        
-        // Provide more specific error information
-        if (err.message.includes('Navigation timeout')) {
-            console.error('[LinkedIn] Navigation timeout - LinkedIn may be blocking requests or server is slow');
-        } else if (err.message.includes('net::ERR_')) {
-            console.error('[LinkedIn] Network error - connection issue or LinkedIn blocking');
-        } else if (err.message.includes('Protocol error')) {
-            console.error('[LinkedIn] Protocol error - browser communication issue');
+   } catch (error) {
+        console.error(`[LinkedIn Scrape Error] for ${linkedinUrl}: ${error.message}`);
+        let statusCode = 500;
+        let errorMessage = `LinkedIn scraping failed: ${error.message}`;
+
+        if (error.name === 'TimeoutError') {
+            statusCode = 504;
+            errorMessage = 'Timeout while scraping LinkedIn.';
+        } else if (error.message.includes('net::ERR_')) {
+            statusCode = 502;
+            errorMessage = 'Network error while connecting to LinkedIn.';
         }
-        
+
+        const pageTitle = await page.title();
+        if (pageTitle.includes('Security check') || pageTitle.includes('CAPTCHA')) {
+            statusCode = 403;
+            errorMessage = 'LinkedIn bot detection triggered.';
+        }
+
+        if (page) {
+            try {
+                console.log(`[Screenshot] Attempting to capture 'error' screenshot for URL: ${linkedinUrl}...`);
+                await page.screenshot({ path: `${SCREENSHOT_DIR}/linkedin_error_${timestamp}.png`, fullPage: true });
+            } catch (sError) {
+                console.error(`[Screenshot Error] Failed to capture 'error' screenshot for URL: ${linkedinUrl}: ${sError.message}`);
+            }
+        }
+
         try {
-            await context.close();
+            if (browser) await browser.close();
             await browser.close();
         } catch (closeError) {
             console.error('[LinkedIn] Error closing browser:', closeError.message);
         }
         
         return { 
-            error: `LinkedIn scraping failed: ${err.message}`,
-            errorType: err.name || 'UnknownError'
+            error: errorMessage,
+            statusCode: statusCode,
+            errorType: error.name || 'UnknownError'
         };
+}
+    }catch (error) {
+        console.error(`[LinkedIn Setup Error] for ${linkedinUrl}: ${error.message}`);
     }
 }
-
 async function extractCompanyDetailsFromPage(page, url, browser) { // Added browser argument here
     const startTime = Date.now();
     console.log(`[Performance] Starting extraction for ${url}`);
@@ -1714,6 +1754,7 @@ app.post('/api/extract-company-details', async (req, res) => {
             _cacheAge: Math.round((Date.now() - cachedResult.timestamp) / 1000)
         });
     }
+    console.log(`[Cache] No valid cache entry for ${normalizedUrl}, proceeding with scrape.`);
 
     const isResolvable = await utils.isDomainResolvable(normalizedUrl);
     if (!isResolvable) {
@@ -1735,6 +1776,7 @@ app.post('/api/extract-company-details', async (req, res) => {
         ]);
 
         // Cache the result for future requests
+        console.log(`[Cache] Caching new result for ${normalizedUrl}`);
         extractionCache.set(cacheKey, {
             data: companyDetails,
             timestamp: Date.now()
@@ -1752,7 +1794,7 @@ app.post('/api/extract-company-details', async (req, res) => {
         res.status(200).json(companyDetails);
 
     } catch (error) {
-        console.error(`[Error extracting company details for URL: ${url}]`, error);
+        console.error(`[Error extracting company details for URL: ${normalizedUrl}]`, error);
         // Basic error handling, will be refined
         let errorMessage = 'Failed to extract company details. An unexpected error occurred.';
         let statusCode = 500;
