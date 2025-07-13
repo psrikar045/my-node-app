@@ -600,7 +600,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
 
     const browser = await puppeteer.launch(launchOptions);
 
-    const context = await browser.createBrowserContext();
+    const context = await browser.createIncognitoBrowserContext();
     const page = await context.newPage();
 
     try {
@@ -609,11 +609,20 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         page.setDefaultNavigationTimeout(120000); // 2 minutes
         page.setDefaultTimeout(60000); // 1 minute
 
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36');
+        const userAgents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+        ];
+        const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+        await page.setUserAgent(userAgent);
         await page.setViewport({ width: 1366, height: 768 });
         
         // Set additional headers to look more like a real browser
         await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -655,9 +664,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         await page.goto(cleanUrl, { waitUntil: 'networkidle2' });
         console.log('[LinkedIn] Navigation complete.');
 
-        // Wait a bit for dynamic content to load with reduced delay
-        const randomDelay = 500 + Math.random() * 1000; // 0.5-1.5 seconds (reduced from 1-3 seconds)
-        await new Promise(resolve => setTimeout(resolve, randomDelay));
+        await page.waitForTimeout(Math.random() * 1500 + 500);
 
         // Try to close various popups that might appear
         const popupSelectors = [
@@ -680,6 +687,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
         }
 
         console.log('[LinkedIn] Starting data extraction...');
+        await page.waitForTimeout(Math.random() * 1500 + 500);
         const data = await Promise.race([
             page.evaluate(() => {
             console.log('[LinkedIn Eval] Starting data extraction...');
