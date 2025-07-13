@@ -1,6 +1,8 @@
 const express = require('express');
 const cors =require('cors');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 const dns = require('dns').promises;
 const os = require('os');
 const fs = require('fs');
@@ -12,6 +14,20 @@ const port = process.env.PORT || 3000;
 // Simple in-memory cache for performance optimization
 const extractionCache = new Map();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes cache
+
+// New constants for retry logic and rate limiting
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
+const CONCURRENT_REQUEST_LIMIT = 5;
+const REQUEST_COOLDOWN_MS = 1000;
+const requestTimestamps = new Map();
+
+/**
+ * Delays execution for a specified number of milliseconds.
+ * @param {number} ms - The number of milliseconds to delay.
+ * @returns {Promise<void>} A promise that resolves after the delay.
+ */
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Enable CORS and JSON parsing
 app.use(cors());
@@ -291,176 +307,74 @@ const utils = {
 };
 
 /**
- * Sets up a Puppeteer browser instance and a new page, then navigates to the given URL.
- * Includes error handling for browser launch and page navigation.
- * This version is specifically for the /api/extract-company-details endpoint.
- * @param {string} url - The URL to navigate to.
- * @returns {Promise<{browser: import('puppeteer').Browser, page: import('puppeteer').Page}>} A promise that resolves to an object containing the browser and page objects.
- * @throws Will throw an error if Puppeteer setup or navigation fails.
+ * Returns an object with Puppeteer launch options, including advanced anti-detection arguments.
+ * Conditionally enables headless mode based on the `HEADLESS` environment variable.
+ * @returns {object} Puppeteer launch options.
  */
-async function setupPuppeteerPageForCompanyDetails(url) {
-    const launchOptions = {
+function getLaunchOptions() {
+    return {
+        headless: process.env.HEADLESS === 'false' ? false : 'new',
         args: [
+            // Standard anti-detection arguments
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-infobars',
+            '--window-size=1920,1080',
+            '--ignore-certificate-errors',
             '--disable-dev-shm-usage',
-            '--single-process',
-            '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process',
-            '--disable-gpu',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
+            '--disable-accelerated-2d-canvas',
             '--no-first-run',
-            '--no-default-browser-check',
-            '--disable-extensions',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu',
+            // Arguments for better fingerprint evasion
+            '--incognito',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-site-isolation-trials',
+            '--disable-web-security',
         ],
-        headless: true,
-        timeout: 60000, // Browser launch timeout (1 minute) - faster startup
-        protocolTimeout: 180000 // CDP command timeout (3 minutes) - reduced but still reasonable
     };
-    
-    // Browser launch with optimized retry logic
-    let browser;
-    let lastError;
-    
-    for (let attempt = 1; attempt <= 2; attempt++) { // Reduced from 3 to 2 attempts
-        try {
-            console.log(`[Browser] Launch attempt ${attempt}/2...`);
-            browser = await puppeteer.launch(launchOptions);
-            console.log(`[Browser] Launch successful on attempt ${attempt}`);
-            break;
-        } catch (error) {
-            lastError = error;
-            console.log(`[Browser] Launch attempt ${attempt} failed:`, error.message);
-            
-            if (attempt < 2) {
-                console.log(`[Browser] Waiting 1 second before retry...`); // Reduced from 3 seconds
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-    }
-    
-    if (!browser) {
-        throw new Error(`Browser launch failed after 2 attempts. Last error: ${lastError.message}`);
-    }
+}
+
+/**
+ * Scrapes company details from a given URL. This function replaces the previous `navigateToWithRetries` function.
+ * @param {string} url - The URL to scrape.
+ * @returns {Promise<object>} The extracted company details.
+ */
+async function scrapeCompanyDetails(url) {
+    const launchOptions = getLaunchOptions();
+    const browser = await puppeteer.launch(launchOptions);
+    const context = await browser.createIncognitoBrowserContext();
+    const page = await context.newPage();
 
     try {
-        const page = await browser.newPage();
-        page.setDefaultNavigationTimeout(180000); // Default navigation timeout (3 minutes)
-        await page.setViewport({ width: 1280, height: 800 }); // Standard viewport
-        
-      // Smart resource blocking - block heavy resources but keep essential ones
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            const resourceType = req.resourceType();
-            const url = req.url();
-            
-            // Block heavy and non-essential resources for faster loading
-            if (resourceType === 'media' || 
-                (resourceType === 'font' && !url.includes('woff2')) || // Keep woff2 fonts only
-                url.includes('analytics') ||
-                url.includes('tracking') ||
-                url.includes('ads') ||
-                url.includes('facebook.com') ||
-                url.includes('google-analytics') ||
-                url.includes('googletagmanager') ||
-                url.includes('doubleclick') ||
-                url.includes('youtube.com') ||
-                url.includes('vimeo.com') ||
-                url.includes('tiktok.com') ||
-                url.includes('instagram.com') ||
-                url.includes('twitter.com')) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
+        // Set a random user agent
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36');
+        // Set a consistent viewport
+        await page.setViewport({ width: 1920, height: 1080 });
 
-        // Navigation with retry logic and progressive wait conditions
-        let response;
-        let navigationSuccess = false;
-        let lastError;
-        
-        // Smart navigation with adaptive timeouts - try fast first, fallback to slower
-        const waitConditions = [
-            { condition: 'domcontentloaded', timeout: 15000 },  // Fast DOM load
-            { condition: 'load', timeout: 45000 },              // Full load with reasonable timeout
-            { condition: 'networkidle2', timeout: 60000 }       // Fallback for complex sites
-        ];
-        
-        for (let attempt = 1; attempt <= 2; attempt++) {
-            for (let conditionIndex = 0; conditionIndex < waitConditions.length; conditionIndex++) {
-                const { condition: waitCondition, timeout } = waitConditions[conditionIndex];
-                
-                try {
-                    console.log(`[Navigation] Attempt ${attempt}/2 with '${waitCondition}' (${timeout/1000}s timeout) for ${url}`);
-                    
-                    response = await page.goto(url, {
-                        waitUntil: waitCondition,
-                        timeout: timeout
-                    });
-                    
-                    navigationSuccess = true;
-                    console.log(`[Navigation] Success with '${waitCondition}' on attempt ${attempt}`);
-                    break;
-                } catch (error) {
-                    lastError = error;
-                    console.log(`[Navigation] Failed with '${waitCondition}':`, error.message);
-                    
-                    // If this was the last condition, break to try next attempt
-                    if (conditionIndex === waitConditions.length - 1) {
-                        break;
-                    }
-                }
-            }
-            
-            if (navigationSuccess) break;
-            
-            if (attempt < 2) {
-                console.log(`[Navigation] Waiting 2 seconds before retry...`); // Reduced from 5 seconds
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-        
-        if (!navigationSuccess) {
-            // Final fallback attempt with minimal requirements
-            console.log(`[Navigation] Final fallback attempt with minimal timeout...`);
-            try {
-                response = await page.goto(url, {
-                    waitUntil: 'domcontentloaded',
-                    timeout: 30000 // Keep reasonable timeout for reliability
-                });
-                navigationSuccess = true;
-                console.log(`[Navigation] Fallback attempt succeeded`);
-            } catch (fallbackError) {
-                throw new Error(`Navigation failed completely. Last error: ${lastError.message}, Fallback error: ${fallbackError.message}`);
+        // Navigate to the page with retries
+        await navigateToWithRetries(page, url);
+
+        // Check for CAPTCHA
+        const captchaSelectors = ['[data-captcha]', '#captcha-form', '[class*="captcha"]'];
+        for (const selector of captchaSelectors) {
+            if (await page.$(selector)) {
+                throw new Error('CAPTCHA detected.');
             }
         }
 
-        if (!response) {
-            throw new Error('Failed to load the page: No response received.');
-        }
+        // Wait for the main content to load
+        await page.waitForSelector('body', { timeout: 10000 });
+        // Add a final random delay
+        await delay(Math.random() * 3000 + 2000);
 
-        if (!response.ok()) {
-            console.warn(`[Navigation] HTTP ${response.status()} for ${url}, but continuing...`);
-            // Don't throw error for non-2xx status codes, many sites work despite this
-        }
-        
-        // Give the page a moment to settle after navigation (reduced delay)
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Reduced from 2000ms to 1000ms
-        return { browser, page };
-    } catch (error) {
-        if (browser) {
-            await browser.close(); // Ensure browser is closed on error during setup
-        }
-        // Re-throw the error to be caught by the endpoint's main try-catch block
-        if (error.message && error.message.includes(url)) {
-            throw error; // Error message already contains URL and potentially status
-        } else {
-            // Add URL context if not present
-            throw new Error(`Puppeteer setup or navigation failed for URL ${url}: ${error.message}`);
-        }
+        // Extract company details
+        const companyDetails = await extractCompanyDetailsFromPage(page, url, browser);
+        return companyDetails;
+    } finally {
+        await browser.close();
     }
 }
 function normalizeLinkedInUrl(url) {
@@ -1690,6 +1604,54 @@ async function extractCompanyDetailsFromPage(page, url, browser) { // Added brow
 }
 
 
+const scrapingQueue = [];
+let activeScrapes = 0;
+
+async function processQueue() {
+    if (activeScrapes >= CONCURRENT_REQUEST_LIMIT) {
+        return;
+    }
+
+    const request = scrapingQueue.shift();
+    if (!request) {
+        return;
+    }
+
+    const { url, res, req } = request;
+    const ip = req.ip;
+
+    const lastRequestTime = requestTimestamps.get(ip);
+    if (lastRequestTime && (Date.now() - lastRequestTime) < REQUEST_COOLDOWN_MS) {
+        await delay(REQUEST_COOLDOWN_MS - (Date.now() - lastRequestTime));
+    }
+
+    activeScrapes++;
+    requestTimestamps.set(ip, Date.now());
+
+    try {
+        const companyDetails = await scrapeCompanyDetails(url);
+        res.status(200).json(companyDetails);
+    } catch (error) {
+        let errorMessage = 'Failed to extract company details.';
+        let statusCode = 500;
+
+        if (error instanceof puppeteer.errors.TimeoutError) {
+            errorMessage = 'Timeout while extracting details.';
+            statusCode = 504;
+        } else if (error.message.includes('CAPTCHA')) {
+            errorMessage = 'Bot detection or CAPTCHA encountered.';
+            statusCode = 403;
+        } else if (error.message.includes('Navigation failed')) {
+            errorMessage = 'Failed to navigate to the page after multiple retries.';
+            statusCode = 502;
+        }
+        res.status(statusCode).json({ error: errorMessage, details: error.message });
+    } finally {
+        activeScrapes--;
+        processQueue();
+    }
+}
+
 // New endpoint for extracting specific company details
 app.post('/api/extract-company-details', async (req, res) => {
     const { url: initialUrl } = req.body;
@@ -1720,58 +1682,6 @@ app.post('/api/extract-company-details', async (req, res) => {
         return res.status(400).json({ error: 'Domain name could not be resolved' });
     }
 
-    let browser;
-    try {
-        const { browser: launchedBrowser, page } = await setupPuppeteerPageForCompanyDetails(normalizedUrl);
-        browser = launchedBrowser;
-
-        // Add timeout wrapper for the entire extraction process with smart timeout
-        console.log('[Extraction] Starting company details extraction with 4-minute timeout...');
-        const companyDetails = await Promise.race([
-            extractCompanyDetailsFromPage(page, normalizedUrl, browser),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Company extraction timeout after 4 minutes')), 240000) // Balanced timeout - allows LinkedIn extraction but not too long
-            )
-        ]);
-
-        // Cache the result for future requests
-        extractionCache.set(cacheKey, {
-            data: companyDetails,
-            timestamp: Date.now()
-        });
-
-        // Clean old cache entries periodically
-        if (extractionCache.size > 100) { // Limit cache size
-            const oldestEntries = Array.from(extractionCache.entries())
-                .sort((a, b) => a[1].timestamp - b[1].timestamp)
-                .slice(0, 20); // Remove oldest 20 entries
-            
-            oldestEntries.forEach(([key]) => extractionCache.delete(key));
-        }
-
-        res.status(200).json(companyDetails);
-
-    } catch (error) {
-        console.error(`[Error extracting company details for URL: ${url}]`, error);
-        // Basic error handling, will be refined
-        let errorMessage = 'Failed to extract company details. An unexpected error occurred.';
-        let statusCode = 500;
-
-        if (error.name === 'TimeoutError') {
-            errorMessage = 'The extraction timed out. The page might be too complex or unresponsive.';
-            statusCode = 504; // Gateway Timeout
-        }
-        // Add more specific error handling as developed
-
-        res.status(statusCode).json({ error: errorMessage, details: error.message });
-    } finally {
-        if (browser) {
-            try {
-                await browser.close(); // Ensure browser is closed
-                console.log('[Browser] Browser closed successfully');
-            } catch (closeError) {
-                console.error('[Browser] Error closing browser:', closeError.message);
-            }
-        }
-    }
+    scrapingQueue.push({ url: normalizedUrl, res, req });
+    processQueue();
 });
