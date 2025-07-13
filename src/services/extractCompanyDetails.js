@@ -1,6 +1,7 @@
 const Redis = require('ioredis');
 const { getCluster } = require('./puppeteerSetup');
 const { retryLinkedInExtraction } = require('./linkedinScraper');
+
 const { ErrorTypes, createError } = require('../utils/errorUtils');
 const { isValidUrl, isDomainResolvable } = require('../utils/urlUtils');
 
@@ -53,6 +54,7 @@ async function extractCompanyDetails(url, linkedin) {
       const res = await withTimeout(retryLinkedInExtraction(linkedin), 120000);
       linkedinData = res.data;
     } catch (err) {
+
       console.error(err);
     }
   }

@@ -8,6 +8,7 @@ const ErrorTypes = {
   ExtractionError: 'ExtractionError',
   NetworkError: 'NetworkError',
   ECONNRESET: 'ECONNRESET'
+
 };
 
 /**
