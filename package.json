@@ -21,7 +21,6 @@
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "express-rate-limit": "^7.0.0",
-    "ioredis": "^5.3.2",
     "puppeteer-cluster": "^0.23.0",
     "chrome-launcher": "^0.15.1"
   }
