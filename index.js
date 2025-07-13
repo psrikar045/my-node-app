@@ -666,24 +666,30 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
 
         await page.waitForTimeout(Math.random() * 1500 + 500);
 
-        // Try to close various popups that might appear
-        const popupSelectors = [
+        const POPUP_CLOSE_SELECTORS = [
             'button[aria-label="Dismiss"]',
-            'button[data-test-modal-close-btn]',
-            'button[class*="modal-close"]',
-            '.modal button[aria-label*="close"]',
-            '.artdeco-modal__dismiss'
+            'button[data-test-id="overlay-close"]',
+            'button.modal__close',
+            '.modal-header .close',
+            'button[aria-label*="close" i]'
         ];
-        
-        for (const selector of popupSelectors) {
-            try {
-                await page.click(selector, { timeout: 1000 }); // Reduced from 2000ms to 1000ms
-                console.log(`[LinkedIn] Dismissed popup using selector: ${selector}`);
-                await new Promise(resolve => setTimeout(resolve, 500)); // Reduced from 1000ms to 500ms
-                break;
-            } catch {
-                // Continue to next selector
+
+        try {
+            console.log('[LinkedIn] Checking for pop-up...');
+            await page.waitForSelector(POPUP_CLOSE_SELECTORS.join(','), { timeout: 7000 });
+
+            for (const selector of POPUP_CLOSE_SELECTORS) {
+                try {
+                    await page.click(selector, { timeout: 1000 });
+                    console.log(`[LinkedIn] Clicked pop-up close button with selector: ${selector}`);
+                    await page.waitForTimeout(Math.random() * 1000 + 500);
+                    break;
+                } catch (e) {
+                    // Selector not found or not clickable, try next one
+                }
             }
+        } catch (error) {
+            console.log('[LinkedIn] No pop-up detected or could not be closed, continuing...');
         }
 
         console.log('[LinkedIn] Starting data extraction...');
