@@ -1,3 +1,4 @@
+
 const { getCluster } = require('./puppeteerSetup');
 const { retryLinkedInExtraction } = require('./linkedinScraper');
 const { ErrorTypes, createError } = require('../utils/errorUtils');
@@ -7,6 +8,7 @@ const { isValidUrl, isDomainResolvable } = require('../utils/urlUtils');
 const extractionCache = new Map();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 const MAX_CACHE_ENTRIES = 100;
+
 
 /**
  * Extract company details from a website and optionally LinkedIn.
@@ -25,12 +27,14 @@ async function extractCompanyDetails(url, linkedin) {
   }
 
   const cacheKey = `extract:${normalized}`;
+
   const cached = extractionCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
     console.log(`[cache] hit ${normalized}`);
     return { ...(cached.data), _cached: true };
   }
   console.log(`[cache] miss ${normalized}`);
+
 
   const cluster = await getCluster();
   const siteData = await cluster.execute({ url: normalized }, async ({ page }) => {
@@ -56,17 +60,20 @@ async function extractCompanyDetails(url, linkedin) {
       const res = await withTimeout(retryLinkedInExtraction(linkedin), 120000);
       linkedinData = res.data;
     } catch (err) {
+
       console.error(err);
     }
   }
 
   const result = { success: true, site: siteData, linkedin: linkedinData };
 
+
   extractionCache.set(cacheKey, { data: result, timestamp: Date.now() });
   if (extractionCache.size > MAX_CACHE_ENTRIES) {
     const oldestKey = extractionCache.keys().next().value;
     extractionCache.delete(oldestKey);
   }
+
 
   return result;
 }
