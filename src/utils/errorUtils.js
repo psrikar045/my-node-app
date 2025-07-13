@@ -6,7 +6,9 @@ const ErrorTypes = {
   NavigationError: 'NavigationError',
   LinkedInBotDetection: 'LinkedInBotDetection',
   ExtractionError: 'ExtractionError',
-  NetworkError: 'NetworkError'
+  NetworkError: 'NetworkError',
+  ECONNRESET: 'ECONNRESET'
+
 };
 
 /**

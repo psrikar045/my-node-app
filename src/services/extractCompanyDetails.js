@@ -1,6 +1,7 @@
 const Redis = require('ioredis');
 const { getCluster } = require('./puppeteerSetup');
-const { extractCompanyDataFromLinkedIn } = require('./linkedinScraper');
+const { retryLinkedInExtraction } = require('./linkedinScraper');
+
 const { ErrorTypes, createError } = require('../utils/errorUtils');
 const { isValidUrl, isDomainResolvable } = require('../utils/urlUtils');
 
@@ -40,10 +41,20 @@ async function extractCompanyDetails(url, linkedin) {
   let linkedinData = null;
   if (linkedin) {
     try {
-      const res = await extractCompanyDataFromLinkedIn(linkedin);
+      const withTimeout = (promise, ms) => {
+        let t;
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => {
+            t = setTimeout(() => reject(createError(ErrorTypes.TimeoutError, 'LinkedIn extraction timeout')), ms);
+          })
+        ]).finally(() => clearTimeout(t));
+      };
+
+      const res = await withTimeout(retryLinkedInExtraction(linkedin), 120000);
       linkedinData = res.data;
     } catch (err) {
-      // Ignore LinkedIn errors but log
+
       console.error(err);
     }
   }
