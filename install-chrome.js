@@ -28,7 +28,7 @@ async function installChrome() {
             // Try to launch Puppeteer to trigger auto-download
             console.log('🚀 Attempting to launch Puppeteer to trigger download...');
             const browser = await puppeteer.launch({
-                headless: false,,
+                headless: false,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             });
             await browser.close();

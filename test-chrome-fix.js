@@ -42,7 +42,7 @@ async function testChromeFix() {
     console.log('Test 4: Testing Puppeteer launch...');
     try {
         const launchOptions = {
-            headless: false,,
+            headless: false,
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
             timeout: 30000
         };

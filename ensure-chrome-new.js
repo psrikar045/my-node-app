@@ -27,7 +27,7 @@ async function ensureChrome() {
     console.log('🔍 [Chrome Installer] Strategy 1: Testing default Puppeteer launch...');
     try {
         const testBrowser = await puppeteer.launch({
-            headless: false,,
+            headless: false,
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
             timeout: 30000
         });
@@ -50,7 +50,7 @@ async function ensureChrome() {
         // Test the found executable
         try {
             const testBrowser = await puppeteer.launch({
-                headless: false,,
+                headless: false,
                 executablePath: chromeExecutable,
                 args: ['--no-sandbox', '--disable-setuid-sandbox'],
                 timeout: 30000
@@ -85,7 +85,7 @@ async function ensureChrome() {
             // Test system Chrome
             try {
                 const browser = await puppeteer.launch({
-                    headless: false,,
+                    headless: false,
                     executablePath: chromePath,
                     args: ['--no-sandbox', '--disable-setuid-sandbox']
                 });

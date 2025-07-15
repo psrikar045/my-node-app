@@ -187,7 +187,7 @@ async function testProxyConfig(config) {
         try {
             const puppeteer = require('puppeteer');
             const browser = await puppeteer.launch({
-                headless: false,,
+                headless: false,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',

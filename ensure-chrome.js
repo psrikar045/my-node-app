@@ -13,7 +13,7 @@ async function ensureChrome() {
     try {
         // First attempt: Try to launch Puppeteer with existing Chrome
         const browser = await puppeteer.launch({
-            headless: false,,
+            headless: false,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -48,7 +48,7 @@ async function ensureChrome() {
             
             // Try launching again after installation
             const browser = await puppeteer.launch({
-                headless: false,,
+                headless: false,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
