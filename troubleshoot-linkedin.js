@@ -173,7 +173,7 @@ class LinkedInTroubleshooter {
             const startTime = Date.now();
             
             const browser = await puppeteer.launch({
-                headless: true,
+                headless: false,,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -221,7 +221,7 @@ class LinkedInTroubleshooter {
 
         try {
             const browser = await puppeteer.launch({
-                headless: true,
+                headless: false,,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -298,7 +298,7 @@ class LinkedInTroubleshooter {
 
         try {
             const browser = await puppeteer.launch({
-                headless: true,
+                headless: false,,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',

@@ -389,7 +389,7 @@ async function setupPuppeteerPageForCompanyDetails(url) {
             // '--disable-default-apps',
             // '--disable-sync'
         ],
-        headless: true,
+        headless: false,
         timeout: 60000, // Browser launch timeout (1 minute) - faster startup
         protocolTimeout: 180000 // CDP command timeout (3 minutes) - reduced but still reasonable
     };
@@ -630,7 +630,7 @@ async function getSharedBrowser() {
         
         // Load proxy configuration
         linkedInProxyManager.loadProxiesFromConfig();
-        const proxy = linkedInProxyManager.getNextProxy();
+        let proxy = linkedInProxyManager.getNextProxy();
         
         let userAgent;
         if (platform === 'linux') {
@@ -640,7 +640,7 @@ async function getSharedBrowser() {
         }
 
         const launchOptions = {
-            headless: true,
+            headless: false,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -870,7 +870,7 @@ async function extractCompanyDataFromLinkedIn(linkedinUrl) {
     await linkedInSessionManager.setupPageWithSession(page);
     
     // Authenticate proxy if needed
-    const proxy = linkedInProxyManager.getNextProxy();
+    let proxy = linkedInProxyManager.getNextProxy();
     if (proxy) {
         await linkedInProxyManager.authenticateProxy(page, proxy);
     }
@@ -1257,7 +1257,7 @@ const getImageFromBanner = () => {
             await linkedInSessionManager.setupPageWithSession(newPage);
             
             // Use different proxy for retry if available
-            const retryProxy = linkedInProxyManager.getNextProxy();
+            let retryProxy = linkedInProxyManager.getNextProxy();
             if (retryProxy) {
                 await linkedInProxyManager.authenticateProxy(newPage, retryProxy);
             }
