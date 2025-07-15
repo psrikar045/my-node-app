@@ -1,22 +1,31 @@
 {
-  "name": "my-node-app",
+  "name": "sumNode",
   "version": "1.0.0",
+  "description": "Company details extraction API using Puppeteer",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "install-chrome": "node install-chrome.js",
+    "install-chrome-ubuntu": "chmod +x install-chrome-ubuntu.sh && ./install-chrome-ubuntu.sh",
+    "ensure-chrome": "node ensure-chrome.js",
+    "check-puppeteer": "node check-puppeteer.js",
+    "test-find-chrome": "node test-find-chrome.js",
+    "test-chrome-fix": "node test-chrome-fix.js",
+    "test-linkedin": "node test-linkedin-extraction.js",
+    "troubleshoot-linkedin": "node troubleshoot-linkedin.js",
+    "monitor-linkedin": "node linkedin-monitor.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18.0.0"
   },
   "keywords": [],
-  "author": "Srikar",
+  "author": "srikar",
   "license": "ISC",
-  "description": "Company details extraction API using Puppeteer",
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "puppeteer": "^24.12.1"
+    "express": "^4.21.2",
+    "puppeteer": "^22.15.0"
   }
 }

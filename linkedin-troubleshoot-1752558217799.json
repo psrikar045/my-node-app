@@ -1,0 +1,75 @@
+{
+  "system": {
+    "platform": "win32",
+    "arch": "x64",
+    "totalMemory": "16GB",
+    "freeMemory": "4GB",
+    "cpuCount": 8,
+    "nodeVersion": "v20.9.0"
+  },
+  "network": {
+    "linkedin.com": {
+      "reachable": true,
+      "duration": "52ms"
+    },
+    "media.licdn.com": {
+      "reachable": true,
+      "duration": "28ms"
+    },
+    "static.licdn.com": {
+      "reachable": true,
+      "duration": "39ms"
+    }
+  },
+  "browsers": {
+    "/usr/bin/google-chrome-stable": {
+      "found": false
+    },
+    "/usr/bin/google-chrome": {
+      "found": false
+    },
+    "/usr/bin/chromium-browser": {
+      "found": false
+    },
+    "/usr/bin/chromium": {
+      "found": false
+    },
+    "/snap/bin/chromium": {
+      "found": false
+    }
+  },
+  "puppeteer": {
+    "working": true,
+    "launchTime": "1490ms",
+    "version": "Chrome/138.0.7204.92"
+  },
+  "linkedinAccess": {
+    "accessible": true,
+    "navigationTime": "3471ms",
+    "title": "Microsoft | LinkedIn..."
+  },
+  "scraping": {
+    "working": true,
+    "extractionTime": "4440ms",
+    "fieldsExtracted": 3,
+    "sampleData": {
+      "industry": "Software Development",
+      "companySize": "10,001+ employees",
+      "headquarters": "Redmond, Washington",
+      "founded": null
+    }
+  },
+  "summary": {
+    "totalIssues": 1,
+    "systemHealth": "Minor Issues",
+    "timestamp": "2025-07-15T05:43:37.794Z",
+    "platform": "win32",
+    "nodeVersion": "v20.9.0"
+  },
+  "issues": [
+    "❌ No Chrome/Chromium browser found"
+  ],
+  "recommendations": [
+    "Install Chrome: sudo apt-get install google-chrome-stable"
+  ]
+}
